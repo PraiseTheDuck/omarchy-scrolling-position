@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.jvaxx.scrolling-position",
+  "name": "Scrolling Position",
+  "version": "1.0.0",
+  "author": "Jvaxx",
+  "license": "MIT",
+  "homepage": "https://github.com/Jvaxx/omarchy-scrolling-position",
+  "description": "Where you are on the tape: column position indicator for Hyprland's scrolling layout.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Scrolling Position",
+    "description": "Minimap of the scrolling layout's column tape, with the on-screen viewport marked. Click to switch between the proportional map and plain pips.",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": {
+      "mode": "map",
+      "mapLength": 110,
+      "pollInterval": 600,
+      "hideWhenSingleColumn": false
+    },
+    "schema": [
+      {
+        "key": "mode",
+        "type": "string",
+        "label": "Display mode",
+        "description": "map = column widths drawn to scale with a viewport bracket; pips = one dot per column. Clicking the widget switches modes and saves the choice here.",
+        "defaultValue": "map"
+      },
+      {
+        "key": "mapLength",
+        "type": "number",
+        "label": "Map length in pixels",
+        "description": "Length of the minimap along the bar. Ignored in pips mode.",
+        "defaultValue": 110
+      },
+      {
+        "key": "pollInterval",
+        "type": "number",
+        "label": "Heartbeat interval (ms)",
+        "description": "Fallback refresh for scrolls that emit no Hyprland event. 0 disables it (event-driven only).",
+        "defaultValue": 600
+      },
+      {
+        "key": "hideWhenSingleColumn",
+        "type": "boolean",
+        "label": "Hide when the workspace has one column",
+        "description": "Nothing to scroll to, so the indicator can get out of the way.",
+        "defaultValue": false
+      }
+    ]
+  }
+}
