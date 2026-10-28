@@ -37,7 +37,7 @@ at an edge, or entirely off screen.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/Jvaxx/omarchy-scrolling-position.git --enable
+omarchy plugin add https://github.com/PraiseTheDuck/omarchy-scrolling-position.git --enable
 ```
 
 `--enable` asks which bar section to place it in. The natural spot is **left**,
