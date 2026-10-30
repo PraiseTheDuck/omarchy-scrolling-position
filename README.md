@@ -93,20 +93,28 @@ hot-reload on save.
 Hyprland keeps off-screen columns in `hyprctl clients` with their real
 coordinates — a column parked left of the viewport reports a negative `x` — so
 the whole tape can be reconstructed from geometry alone. Windows stacked in one
-column share an `x`/`width` pair and collapse into a single segment.
+column share an `x` (within a few pixels; Hyprland sometimes reports their widths
+a pixel apart) and collapse into a single segment.
 
 Refreshing is the interesting part, because **Hyprland has no event for a layout
 geometry change**. Verified on `.socket2`: moving focus emits `activewindowv2`,
 while `layoutmsg colresize` moves every column on the tape and emits nothing at
-all. So the widget uses three paths:
+all. `windowtitlev2` fires whenever a title changes and says nothing about the
+tape, so it is ignored. The widget uses three paths:
 
-1. **Events.** Any Hyprland IPC event fires a three-shot refresh at 0/120/380 ms
-   — one read for the dispatch, the rest for the animation settling. This covers
-   all ordinary scrolling, which is focus movement, instantly.
+1. **Events that can move the tape.** Focus, open/close, workspace and monitor
+   changes, fullscreen, float, minimize, pin, and group moves. Each one reads
+   monitors, workspaces, and clients once, then recomputes every 30 ms for a
+   short window so the paint lands when the reply arrives, not on a fixed delay
+   after the request was sent. A second read about 200 ms later catches a
+   consume/expel that is still settling. Quickshell drops a refresh that arrives
+   while the previous one is in flight, so the widget does not queue overlapping
+   reads. The monitor read is what keeps the viewport honest after a scale change.
 2. **A heartbeat**, `pollInterval` (600 ms default). This is what catches the
-   eventless changes: column resizes and mouse-drag resizes. An unchanged tape is
-   compared by signature and dropped without repainting, so a static strip costs
-   a socket read and a string compare.
+   eventless changes: column resizes, mouse-drag resizes, and a layout switch
+   that never emitted an event. An unchanged tape is compared by signature and
+   dropped without repainting, so a static strip costs a socket read and a
+   string compare.
 3. **An IPC hook**, for anyone who would rather not poll:
 
    ```bash
@@ -124,6 +132,11 @@ hot-reload alone does not pick it up.
 
 ## Notes
 
+- **Horizontal tape only.** The map is built from column `x` and width, which is
+  the scrolling layout's default direction (`left` / `right`). A workspace whose
+  `scrolling.direction` is `up` or `down` is a vertical tape. Hyprland does not
+  report that direction on the workspace, so the widget cannot tell it apart
+  from windows stacked in one horizontal column.
 - **Multi-monitor:** each bar reads its own screen's active workspace, not the
   focused one, so the widget on your second monitor describes that monitor's
   tape.
@@ -134,9 +147,11 @@ hot-reload alone does not pick it up.
   `activewindowv2` event and never seeds it, so the focused column falls back to
   `focusHistoryID` from the same snapshot as the geometry. The right column is
   lit on a freshly started bar, before you have touched anything.
-- Floating windows and the scratchpad are excluded from the tape.
-- Colors come from the active Omarchy theme (`bar.text`); there is nothing to
-  configure and nothing to restyle when you switch themes.
+- Floating windows, pinned windows, minimized windows, and the scratchpad are
+  excluded from the tape.
+- Colors come from the active Omarchy theme (`bar.barForeground`, or the theme
+  foreground when the bar has not supplied one). There is nothing to configure
+  and nothing to restyle when you switch themes.
 
 ## License
 

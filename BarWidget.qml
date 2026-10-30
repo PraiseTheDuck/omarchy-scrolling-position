@@ -77,10 +77,22 @@ BarWidget {
     tape = next
   }
 
-  function refresh() {
+  // One read of monitors, workspaces, and clients. Quickshell drops a second
+  // call while the first is still on the socket, so callers must not queue
+  // overlapping reads and hope the later one wins.
+  function pullGeometry() {
+    Hyprland.refreshMonitors()
     Hyprland.refreshWorkspaces()
     Hyprland.refreshToplevels()
     settle.restart()
+  }
+
+  // Event path: the read above, then one more after the consume/expel
+  // animation has had a chance to settle. The heartbeat does not need that
+  // second read; it already repeats.
+  function refresh() {
+    pullGeometry()
+    followUp.restart()
   }
 
   function cycleMode() {
@@ -96,27 +108,43 @@ BarWidget {
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
 
-  // Any Hyprland event may have moved the tape. The burst re-reads three times
-  // over ~400ms because hyprctl reports geometry the instant a dispatch lands,
-  // but a consume/expel settles across several frames.
+  // Title changes, keyboard-layout changes, layers, and similar noise do not
+  // move the tape. A busy browser emits windowtitlev2 constantly; treating
+  // that as a geometry change pins the widget to a continuous client read.
+  readonly property var tapeEvents: ({
+    activewindow: true,
+    activewindowv2: true,
+    openwindow: true,
+    closewindow: true,
+    movewindow: true,
+    movewindowv2: true,
+    workspace: true,
+    workspacev2: true,
+    focusedmon: true,
+    fullscreen: true,
+    changefloatingmode: true,
+    minimize: true,
+    pin: true,
+    monitoradded: true,
+    monitoraddedv2: true,
+    monitorremoved: true,
+    configreloaded: true,
+    activespecial: true,
+    togglegroup: true,
+    moveintogroup: true,
+    moveoutofgroup: true
+  })
+
+  function eventMovesTape(event) {
+    var name = String(event && event.name ? event.name : "")
+    return root.tapeEvents[name] === true
+  }
+
   Connections {
     target: Hyprland
 
-    function onRawEvent(event) { burst.restart() }
-  }
-
-  Timer {
-    id: burst
-    interval: 30
-    repeat: true
-    triggeredOnStart: true
-    property int ticks: 0
-    onRunningChanged: if (running) ticks = 0
-    onTriggered: {
-      root.refresh()
-      ticks++
-      interval = ticks < 2 ? 120 : 260
-      if (ticks >= 3) stop()
+    function onRawEvent(event) {
+      if (root.eventMovesTape(event)) root.refresh()
     }
   }
 
@@ -132,14 +160,32 @@ BarWidget {
       : Math.max(480, root.pollInterval * 4)
     repeat: true
     running: root.pollInterval > 0
-    onTriggered: root.refresh()
+    onTriggered: root.pullGeometry()
   }
 
-  // One frame's grace for the IPC reply to populate lastIpcObject.
+  // The client list arrives after the request returns, not when it is sent.
+  // Recompute across that wait. An unchanged tape is dropped by signature, so
+  // the extra passes do not repaint.
   Timer {
     id: settle
-    interval: 60
-    onTriggered: root.recompute()
+    interval: 30
+    repeat: true
+    triggeredOnStart: true
+    property int ticks: 0
+    onRunningChanged: if (running) ticks = 0
+    onTriggered: {
+      root.recompute()
+      ticks++
+      if (ticks >= 8) stop()
+    }
+  }
+
+  // Second geometry read for a consume/expel that is still moving when the
+  // first reply lands. Restarted by refresh(), not by the heartbeat.
+  Timer {
+    id: followUp
+    interval: 200
+    onTriggered: root.pullGeometry()
   }
 
   // Hyprland emits nothing at all for a layout geometry change -- verified on
@@ -168,6 +214,14 @@ BarWidget {
   readonly property int pipSize: Style.space(5)
   readonly property int focusedPipLength: Style.space(14)
   readonly property int bracketOffset: Style.space(5)
+
+  function markOpacity(column) {
+    if (!column) return 0.22
+    if (column.focused) return 1
+    if (column.onScreen) return 0.5
+    if (column.peeking) return 0.35
+    return 0.22
+  }
 
   readonly property int axisLength: mode === "map"
     ? mapLength
@@ -210,7 +264,7 @@ BarWidget {
         height: root.vertical ? extent : root.thickness
         radius: Math.min(width, height) / 2
         color: root.markColor
-        opacity: modelData.focused ? 1 : (modelData.onScreen ? 0.5 : (modelData.peeking ? 0.35 : 0.22))
+        opacity: root.markOpacity(modelData)
 
         Behavior on x { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
         Behavior on y { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
@@ -262,7 +316,7 @@ BarWidget {
           height: root.pipSize
           radius: height / 2
           color: root.markColor
-          opacity: modelData.focused ? 1 : (modelData.onScreen ? 0.5 : 0.28)
+          opacity: root.markOpacity(modelData)
 
           Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
           Behavior on opacity { NumberAnimation { duration: 140 } }
@@ -285,7 +339,7 @@ BarWidget {
           height: modelData.focused ? root.focusedPipLength : root.pipSize
           radius: width / 2
           color: root.markColor
-          opacity: modelData.focused ? 1 : (modelData.onScreen ? 0.5 : 0.28)
+          opacity: root.markOpacity(modelData)
 
           Behavior on height { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
           Behavior on opacity { NumberAnimation { duration: 140 } }

@@ -8,17 +8,19 @@
 // width. So the whole tape, not just the visible slice, is reconstructible
 // from geometry alone; nothing else needs to be tracked.
 //
-// Windows stacked in one column (consume_or_expel) share an identical x/width
-// pair, which is what groups them here: a column is a distinct x:width, not a
-// distinct window.
+// Windows stacked in one column (consume_or_expel) share an x. Hyprland
+// sometimes reports their widths a pixel apart, so a column is "the same x
+// within a few pixels", not an identical x:width pair. The gap between real
+// columns is much wider than this tolerance.
 
 // Fraction of a column that has to be inside the viewport before it counts as
 // "on screen" rather than "peeking". Only drives opacity, never layout.
 var VISIBLE_FRACTION = 0.35
+var COLUMN_X_TOLERANCE = 4
 
 function columnsFor(toplevels, workspaceId) {
-  var buckets = {}
-  var order = []
+  var columns = []
+  var wantedWorkspace = Number(workspaceId)
 
   for (var i = 0; i < toplevels.length; i++) {
     var toplevel = toplevels[i]
@@ -27,19 +29,29 @@ function columnsFor(toplevels, workspaceId) {
     var ipc = toplevel.lastIpcObject
     if (!ipc || !ipc.at || !ipc.size) continue
     if (ipc.floating === true) continue
-    if (!ipc.workspace || ipc.workspace.id !== workspaceId) continue
+    if (ipc.hidden === true) continue
+    if (ipc.mapped === false) continue
+    if (ipc.pinned === true) continue
+    if (!ipc.workspace || Number(ipc.workspace.id) !== wantedWorkspace) continue
 
     var x = Math.round(ipc.at[0])
     var width = Math.round(ipc.size[0])
     if (width <= 0) continue
 
-    var key = x + ":" + width
-    if (!buckets[key]) {
-      buckets[key] = { x: x, width: width, windows: 0, focused: false, recency: Infinity, titles: [] }
-      order.push(key)
+    var column = null
+    for (var c = 0; c < columns.length; c++) {
+      if (Math.abs(columns[c].x - x) <= COLUMN_X_TOLERANCE) {
+        column = columns[c]
+        break
+      }
+    }
+    if (!column) {
+      column = { x: x, width: width, windows: 0, focused: false, recency: Infinity, titles: [] }
+      columns.push(column)
+    } else if (width > column.width) {
+      column.width = width
     }
 
-    var column = buckets[key]
     column.windows++
     column.titles.push(String(ipc.title || ipc.class || ""))
 
@@ -59,8 +71,6 @@ function columnsFor(toplevels, workspaceId) {
     if (isFinite(recency)) column.recency = Math.min(column.recency, recency)
   }
 
-  var columns = []
-  for (var j = 0; j < order.length; j++) columns.push(buckets[order[j]])
   columns.sort(function(left, right) { return left.x - right.x })
   return columns
 }
